@@ -1,0 +1,4 @@
+uint8 inst_num
+Data data_t
+---
+Data data_r

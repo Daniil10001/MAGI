@@ -1,0 +1,7 @@
+uint8 bus_num
+uint8 device_num
+uint32 speed
+uint8 mode
+---
+uint8 inst_num
+bool result
