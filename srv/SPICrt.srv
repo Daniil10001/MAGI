@@ -1,3 +1,4 @@
+string name
 uint8 bus_num
 uint8 device_num
 uint32 speed

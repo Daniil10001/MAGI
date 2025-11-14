@@ -1,0 +1,7 @@
+string name
+string port
+uint32 baudrate
+uint8 mode #not used now
+---
+uint8 inst_num
+bool result
