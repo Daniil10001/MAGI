@@ -4,5 +4,5 @@ uint8 device_num
 uint32 speed
 uint8 mode
 ---
-uint8 inst_num
+SPIInstance inst
 bool result

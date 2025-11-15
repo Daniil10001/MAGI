@@ -23,7 +23,7 @@ class UARTPortHandler(Node):
         self.publisher=self.create_publisher(UInt8, f"uart_{inst_num}_recieve", 4096*2)
         self.listener=self.create_subscription(UInt8, f"uart_{inst_num}_transmit", self._transmit,4096*2)
         self.running=True
-        print(f"uart_{inst_num} inited")
+        self.get_logger().info(f"uart_{inst_num} inited")
         self.read_thread = threading.Thread(target=self._read)
         self.read_thread.start()
 
@@ -40,7 +40,7 @@ class UARTPortHandler(Node):
                     for d in data:
                         self.publisher.publish(UInt8(data=d))
             except serial.SerialException as e:
-                    print(f"Serial error: {e}")
+                    self.get_logger().error(f"Serial error: {e}")
                     self.running = False
             time.sleep(1/100)
 
@@ -66,18 +66,21 @@ class UARTsrv(Node):
             if len(self.availids)==0:
                response.result=False
                return response
-            response.inst_num=self.availids.pop()
+            k=self.availids.pop()
             try:
-                UARTI=UARTPortHandler(request.port,request.baudrate,\
-                                    response.inst_num)
+                UARTI=UARTPortHandler(request.port,request.baudrate,k)
                 self.Executor.add_node(UARTI)
-                self.interfaces[response.inst_num]=(request.name,request.port,\
+                self.interfaces[k]=(request.name,request.port,\
                                                     request.baudrate,\
                                                     UARTI, Lock())
+                
+                response.inst.inst_num=k
+                response.inst.name,response.inst.port,\
+                    response.inst.baudrate,_,_=self.interfaces[k]
                 response.result=True
             except Exception as e:
-                print(e)
-                self.availids.append(response.inst_num)
+                self.get_logger().error(str(e))
+                self.availids.append(k)
                 response.result=False
                 return response
         return response
@@ -89,8 +92,8 @@ class UARTsrv(Node):
                     try:
                         self.Executor.remove_node(self.interfaces[response.inst_num][3])
                         self.interfaces[response.inst_num][3].destroy_node()
-                    except:
-                        pass #do some logs
+                    except  Exception as e:
+                        self.get_logger().error(str(e))
                     self.interfaces.pop(request.inst_num)
                     self.availids.append(request.inst_num)
                     self.availids.sort(reverse=True)
@@ -104,7 +107,7 @@ class UARTsrv(Node):
             for k in self.interfaces:
                 intf=UARTInstance()
                 intf.inst_num=k
-                intf.name,intf.interface_num,intf.device_num,_,_=self.interfaces[k]
+                intf.name,intf.port,intf.baudrate,_,_=self.interfaces[k]
                 response.instances.append(intf)
         response.num=len(response.instances)
         return response

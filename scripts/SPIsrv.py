@@ -27,17 +27,20 @@ class SPIsrv(Node):
             if len(self.availids)==0:
                response.result=False
                return response
-            response.inst_num=self.availids.pop()
+            k=self.availids.pop()
             try:
                 spi=None#spidev.SpiDev()
                 #spi.open(request.bus_num,request.device_num)
                 #spi.max_speed_hz = request.speed  # 1MHz
                 #spi.mode = request.mode
-                self.interfaces[response.inst_num]=(request.name,request.bus_num,\
+                self.interfaces[k]=(request.name,request.bus_num,\
                                                    request.device_num, spi, Lock())
+                response.inst.inst_num=k
+                response.inst.name,response.inst.bus_num,\
+                    response.inst.device_num,_,_=self.interfaces[k]
                 response.result=True
             except Exception as e:
-                print(e)
+                self.get_logger().error(str(e))
                 self.availids.append(response.inst_num)
                 response.result=False
                 return response
@@ -49,8 +52,8 @@ class SPIsrv(Node):
                 with self.interfaces[response.inst_num][4]:
                     try:
                         self.interfaces[response.inst_num][3].close()
-                    except:
-                        pass #do some logs
+                    except  Exception as e:
+                        self.get_logger().error(str(e))
                     self.interfaces.pop(request.inst_num)
                     self.availids.append(request.inst_num)
                     self.availids.sort(reverse=True)
@@ -64,7 +67,7 @@ class SPIsrv(Node):
             for k in self.interfaces:
                 intf=SPIInstance()
                 intf.inst_num=k
-                intf.name,intf.interface_num,intf.device_num,_,_=self.interfaces[k]
+                intf.name,intf.bus_num,intf.device_num,_,_=self.interfaces[k]
                 response.instances.append(intf)
         response.num=len(response.instances)
         return response
@@ -72,7 +75,7 @@ class SPIsrv(Node):
     def transaction(self, request, response):
         if request.inst_num in self.interfaces.keys():
             with self.interfaces[response.inst_num][4]:
-                response.data_r=self.interfaces[response.inst_num][3].xfer(request.data_t)
+                response.data_r=self.interfaces[response.inst_num][3].xfer(request.data_t.data)
         else:
             response.result=False
         return response
@@ -81,8 +84,8 @@ class SPIsrv(Node):
         for k in self.interfaces:
             try:
                 self.interfaces[k][3].close()
-            except:
-                pass #do some logs
+            except Exception as e:
+                self.get_logger().error(str(e))
 
 
 def main():
