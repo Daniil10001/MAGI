@@ -1,3 +1,4 @@
 uint32 size
 Data[] data
 ---
+bool result
