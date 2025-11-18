@@ -5,6 +5,7 @@ import numpy as np
 from scipy.signal import resample
 from faster_whisper import WhisperModel
 from magi.msg import Data  
+from constant import STM32Buffer
 
 #AI generated need to be prooved and reworked for AI promt getting
 
@@ -13,7 +14,7 @@ class SpeechToTextNode(Node):
         super().__init__('speech_to_text')
         self.subscription = self.create_subscription(
             Data,
-            '/RecivedData',  # Replace with your actual topic name
+            '/RecivedData',
             self.audio_callback,
             600
         )

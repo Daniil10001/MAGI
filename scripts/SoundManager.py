@@ -12,6 +12,7 @@ from magi.srv import SendData, IsBusy
 from std_msgs.msg import UInt8, Bool, String
 from magi.msg import Data
 from asyncio import Future
+from constant import STM32Buffer
 
 class SoundManager(Node):
 
@@ -51,8 +52,8 @@ class SoundManager(Node):
                     audio = audio.set_sample_width(2)
                     samples = audio.get_array_of_samples()
                     samples = np.array(samples, dtype=np.int16)
-                    samples = np.pad(samples,(0,8000-samples.shape[0]%8000), mode =  'constant', constant_values = 0).reshape(-1, 8000)
-                    ldata=[Data(data=samples[1],size=8000) for i in range(samples.shape[0])]
+                    samples = np.pad(samples,(0,STM32Buffer-samples.shape[0]%STM32Buffer), mode =  'constant', constant_values = 0).reshape(-1, STM32Buffer)
+                    ldata=[Data(data=samples[1],size=STM32Buffer) for i in range(samples.shape[0])]
                     self.__datareq.data=ldata
                     self.__datareq.size=samples.shape[0]
                 except Exception as e:

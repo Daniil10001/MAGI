@@ -92,7 +92,7 @@ class Controller(Node):
             self.get_logger().info("start transfer")
             rq_prep=SPIdrqst.Request()
             rq_prep.data_t=(self.buffer.pop() if\
-                self.ctrl_state&0x02 and len(self.buffer)>0 else [0]*8000)
+                self.ctrl_state&0x02 else [0]*8000)
             rq_prep.inst_num=self.__SPI.inst_num
             future = self.spi_rq.call_async(rq_prep)
             self.get_logger().info('Transfer serviece called')
@@ -107,7 +107,7 @@ class Controller(Node):
             else:
                 self.get_logger().error(f'Transfer serviece did not done in estimated time')
             
-        self.ctrl_state=0x03&msg.data
+        self.ctrl_state=msg.data & (0x03 if len(self.buffer)>0 else 0x01)
     
     def BusyCheck(self, request, response):
         response.result=Bool(len(self.buffer)>0)
@@ -128,7 +128,7 @@ class Controller(Node):
 def main():
     try:
         with rclpy.init():
-            node = Controller(1,0,8000,"/dev/ttyAMA1",9600)
+            node = Controller(1,0,8000000,"/dev/ttyAMA1",9600)
             #exec=MultiThreadedExecutor()
             #exec.add_node(node)
             rclpy.spin(node)
