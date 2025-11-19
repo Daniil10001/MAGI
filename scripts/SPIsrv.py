@@ -21,6 +21,7 @@ class SPIsrv(Node):
         self.list_srv= self.create_service(SPIList, 'SPIListInstances', self.listInterfces)
         self.trs_srv= self.create_service(SPIdrqst, 'SPITransaction', self.transaction)
         self.lk=Lock()
+        self.get_logger().info("SPI srv start")
 
     def createInstance(self, request, response):
         with self.lk:
@@ -29,10 +30,10 @@ class SPIsrv(Node):
                return response
             k=self.availids.pop()
             try:
-                spi=None#spidev.SpiDev()
-                #spi.open(request.bus_num,request.device_num)
-                #spi.max_speed_hz = request.speed  # 1MHz
-                #spi.mode = request.mode
+                spi=spidev.SpiDev()
+                spi.open(request.bus_num,request.device_num)
+                spi.max_speed_hz = request.speed  # 1MHz
+                spi.mode = request.mode
                 self.interfaces[k]=(request.name,request.bus_num,\
                                                    request.device_num, spi, Lock())
                 response.inst.inst_num=k
@@ -49,9 +50,9 @@ class SPIsrv(Node):
     def unregisterIstance(self, request, response):
         with self.lk:
             if request.inst_num in self.interfaces.keys():
-                with self.interfaces[response.inst_num][4]:
+                with self.interfaces[request.inst_num][4]:
                     try:
-                        self.interfaces[response.inst_num][3].close()
+                        self.interfaces[request.inst_num][3].close()
                     except  Exception as e:
                         self.get_logger().error(str(e))
                     self.interfaces.pop(request.inst_num)
@@ -74,8 +75,12 @@ class SPIsrv(Node):
 
     def transaction(self, request, response):
         if request.inst_num in self.interfaces.keys():
-            with self.interfaces[response.inst_num][4]:
-                response.data_r=self.interfaces[response.inst_num][3].xfer(request.data_t.data)
+            with self.interfaces[request.inst_num][4]:
+                self.get_logger().info(f"SPI transfer {request.inst_num} start")
+                response.data_r.data=self.interfaces[request.inst_num][3].xfer(request.data_t.data)
+                response.data_r.lenght=len(response.data_r.data)
+                self.get_logger().info(f"SPI transfer {request.inst_num} end")
+                response.result=True
         else:
             response.result=False
         return response
@@ -90,7 +95,7 @@ class SPIsrv(Node):
 
 def main():
     try:
-        with rclpy.init():
+            rclpy.init()
             srv = SPIsrv()
 
             rclpy.spin(srv)

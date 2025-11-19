@@ -9,15 +9,17 @@ from rclpy.executors import MultiThreadedExecutor
 from magi.srv import UARTCrt, SPICrt, SPIUnreg, UARTUnreg, SPIdrqst, SendData, IsBusy
 from std_msgs.msg import UInt8, Bool
 from magi.msg import UARTInstance, Data, SPIInstance
-
+from constant import STM32Buffer
+from threading import Lock
 
 class Controller(Node):
 
     __SPI:SPIInstance=None
     __UART:UARTInstance=None
 
-    def __init__(self,bus:int,device:int,speed:int,port:str,baudrate:int):
+    def __init__(self,bus:int,device:int,speed:int,port:str,baudrate:int, exec):
         super().__init__('controller')
+        self.exec=exec
         self.send_srv = self.create_service(SendData, 'controller/SendData', self.DataRecieved)
         self.isbusy_srv = self.create_service(IsBusy, 'controller/IsBusy', self.BusyCheck)
         
@@ -64,13 +66,14 @@ class Controller(Node):
         request.bus_num=bus
         request.device_num=device
         request.speed=speed
-        future = self.spi_rq.call_async(request)
+        request.mode=1
+        self.future = self.spi_rq.call_async(request)
         self.get_logger().info('SPI service call initiated.')
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5)
-        if future.done():
-            self.__SPI = future.result().inst
+        rclpy.spin_until_future_complete(self, self.future, timeout_sec=5)
+        if self.future.done():
+            self.__SPI = self.future.result().inst
             self.get_logger().info("SPI service responsed")
-            if not future.result().result:
+            if not self.future.result().result:
                  raise Exception("SPI failed to execute")
         else:
             self.get_logger().error(f'UART service call timed out after 5 seconds.')
@@ -78,36 +81,42 @@ class Controller(Node):
         
         while not self.spi_tr.wait_for_service(timeout_sec=1.0):
                 self.get_logger().info('SPI transaction service not available, waiting again...')
-        
+        self.lk=Lock()
         self.get_logger().info("Controller successfully started.")
 
     def timer_callback(self):
-        msg=self.ctrl_state+0xB0
-        self.uart_t.publish(UInt8(msg))
+        with self.lk:
+            msg=self.ctrl_state+0xB0
+            self.uart_t.publish(UInt8(data=msg))
+            self.get_logger().info("transmited "+str(hex(msg)))
              
+    def spi_tr_cb(self,future):
+         self.get_logger().info("spi data recieved")
 
     def update_state(self, msg):
-        self.get_logger().info("recieved "+str(msg.data))
-        if msg.data&0x04:
-            self.get_logger().info("start transfer")
-            rq_prep=SPIdrqst.Request()
-            rq_prep.data_t=(self.buffer.pop() if\
-                self.ctrl_state&0x02 else [0]*8000)
-            rq_prep.inst_num=self.__SPI.inst_num
-            future = self.spi_rq.call_async(rq_prep)
-            self.get_logger().info('Transfer serviece called')
-            rclpy.spin_until_future_complete(self, future, timeout_sec=0.1)
-            if future.done():
-                self.get_logger().info("SPI service responsed")
-                if not future.result().result:
-                    self.get_logger().error(f'Transfer serviece failed')
-                    return
-                if self.ctrl_state&0x01:
-                    self.data_pub.publish(future.result().data_r)
-            else:
-                self.get_logger().error(f'Transfer serviece did not done in estimated time')
-            
-        self.ctrl_state=msg.data & (0x03 if len(self.buffer)>0 else 0x01)
+        with self.lk:
+            self.get_logger().info("recieved "+str(hex(msg.data)))
+            if msg.data&0x04:
+                self.get_logger().info("start transfer")
+                rq_prep=SPIdrqst.Request()
+                rq_prep.data_t.data=(self.buffer.pop() if\
+                    self.ctrl_state&0x02 else [0]*STM32Buffer)
+                rq_prep.inst_num=self.__SPI.inst_num
+                self.future = self.spi_tr.call_async(rq_prep)
+                self.future.add_done_callback(self.spi_tr_cb)
+                self.get_logger().info('Transfer serviece called')
+                rclpy.spin_until_future_complete(self, self.future, executor=self.exec, timeout_sec=100)
+                if self.future.done():
+                    self.get_logger().info("SPI service responsed")
+                    if not self.future.result().result:
+                        self.get_logger().error(f'Transfer serviece failed')
+                        return
+                    if self.ctrl_state&0x01:
+                        self.data_pub.publish(self.future.result().data_r)
+                else:
+                    self.get_logger().error(f'Transfer serviece did not done in estimated time')
+
+            self.ctrl_state=msg.data & (0x03 if len(self.buffer)>0 else 0x01)
     
     def BusyCheck(self, request, response):
         response.result=Bool(len(self.buffer)>0)
@@ -127,11 +136,12 @@ class Controller(Node):
 
 def main():
     try:
-        with rclpy.init():
-            node = Controller(1,0,8000000,"/dev/ttyAMA1",9600)
-            #exec=MultiThreadedExecutor()
-            #exec.add_node(node)
-            rclpy.spin(node)
+            rclpy.init()
+            exec=MultiThreadedExecutor()
+            node = Controller(1,0,8000000,"/dev/ttyAMA1",115200,exec)
+            
+            exec.add_node(node)
+            exec.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
 

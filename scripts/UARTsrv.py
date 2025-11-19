@@ -60,6 +60,7 @@ class UARTsrv(Node):
         self.unreg_srv= self.create_service(UARTUnreg, 'UARTUnregInstance', self.unregisterIstance)
         self.list_srv= self.create_service(UARTList, 'UARTListInstances', self.listInterfces)
         self.lk=Lock()
+        self.get_logger().info("UART srv start")
     
     def createInstance(self, request, response):
         with self.lk:
@@ -115,7 +116,7 @@ class UARTsrv(Node):
 
 def main():
     try:
-        with rclpy.init():
+            rclpy.init()
             Executor=MultiThreadedExecutor()
             srv = UARTsrv(Executor)
             Executor.add_node(srv)
