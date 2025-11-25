@@ -24,7 +24,7 @@ class Controller(Node):
         self.isbusy_srv = self.create_service(IsBusy, 'controller/IsBusy', self.BusyCheck)
         
         self.buffer=[]
-        self.buf_lk=Lock()
+        self.lk=Lock()
         self.data_lk=Lock()
 
 
@@ -56,7 +56,6 @@ class Controller(Node):
         self.ctrl_state=0b00
         self.uart_t=self.create_publisher(UInt8,f"uart_{self.__UART.inst_num}_transmit",10)
         self.uart_r=self.create_subscription(UInt8,f"uart_{self.__UART.inst_num}_recieve",self.update_state,10)
-        self.timer = self.create_timer(0.1, self.timer_callback)
 
         while not self.spi_rq.wait_for_service(timeout_sec=1.0):
                 self.get_logger().info('SPI service not available, waiting again...')
@@ -81,22 +80,33 @@ class Controller(Node):
         
         while not self.spi_tr.wait_for_service(timeout_sec=1.0):
                 self.get_logger().info('SPI transaction service not available, waiting again...')
-        self.lk=Lock()
+        
+        self.timer = self.create_timer(0.1, self.timer_callback)
         self.get_logger().info("Controller successfully started.")
 
     def timer_callback(self):
-        with self.lk:
+        if not self.lk.locked():
             msg=self.ctrl_state+0xB0
             self.uart_t.publish(UInt8(data=msg))
             self.get_logger().info("transmited "+str(hex(msg)))
              
     def spi_tr_cb(self,future):
-         self.get_logger().info("spi data recieved")
+        # self.get_logger().info("spi data recieved")
+        self.get_logger().info("SPI service responsed")
+        if not self.future.result().result:
+            self.get_logger().error(f'Transfer serviece failed')
+            return
+        if self.ctrl_state&0x01:
+            self.data_pub.publish(self.future.result().data_r)
+        self.ctrl_state=0
+        self.lk.release()
 
     def update_state(self, msg):
-        with self.lk:
+            if self.lk.locked():
+                 return
             self.get_logger().info("recieved "+str(hex(msg.data)))
             if msg.data&0x04:
+                self.lk.acquire()
                 self.get_logger().info("start transfer")
                 rq_prep=SPIdrqst.Request()
                 rq_prep.data_t.data=(self.buffer.pop() if\
@@ -105,18 +115,8 @@ class Controller(Node):
                 self.future = self.spi_tr.call_async(rq_prep)
                 self.future.add_done_callback(self.spi_tr_cb)
                 self.get_logger().info('Transfer serviece called')
-                rclpy.spin_until_future_complete(self, self.future, executor=self.exec, timeout_sec=100)
-                if self.future.done():
-                    self.get_logger().info("SPI service responsed")
-                    if not self.future.result().result:
-                        self.get_logger().error(f'Transfer serviece failed')
-                        return
-                    if self.ctrl_state&0x01:
-                        self.data_pub.publish(self.future.result().data_r)
-                else:
-                    self.get_logger().error(f'Transfer serviece did not done in estimated time')
-
-            self.ctrl_state=msg.data & (0x03 if len(self.buffer)>0 else 0x01)
+            else:
+                self.ctrl_state=msg.data & (0x03 if len(self.buffer)>0 else 0x01)
     
     def BusyCheck(self, request, response):
         response.result=Bool(len(self.buffer)>0)
@@ -137,7 +137,7 @@ class Controller(Node):
 def main():
     try:
             rclpy.init()
-            exec=MultiThreadedExecutor()
+            exec=MultiThreadedExecutor(num_threads=3)
             node = Controller(1,0,8000000,"/dev/ttyAMA1",115200,exec)
             
             exec.add_node(node)
