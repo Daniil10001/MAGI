@@ -11,7 +11,7 @@ import threading
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
-
+import numpy as np
 
 
 class UARTPortHandler(Node):
@@ -27,14 +27,30 @@ class UARTPortHandler(Node):
         self.lk=True
         
     def transmit(self, data):
-        self.interface.write(bytes(data))
-        self.interface.flush()
+        try:
+            self.interface.write(bytes(data))
+            return True
+        except:
+            return False
 
     def transaction(self,request,response):
+        if request.rds%2:
+            self.get_logger().info(f"Request was denied because of not even")
+            response.result=False
+            return response
         with self.lk:
-            self.Executor.create_task(self.transmit, request.data_t.data)
-            received_bytes=self.interface.read(request.rds)
-            request.data_r.data=[UInt16(received_bytes[i+1] << 8) | UInt16(received_bytes[i]) for i in range(8192)]
+            try:
+                self.future =self.Executor.create_task(self.transmit, request.data_t.data)
+                request.data_r.data=np.frombuffer(self.interface.read(request.rds), dtype=np.int16)#[UInt16(received_bytes[i+1] << 8) | UInt16(received_bytes[i]) for i in range(8192)]
+                self.Executor.spin_until_future_complete(self.future)
+                if not self.future.result():
+                    response.result=False
+                    return response
+                response.result=True
+                return response
+            except:
+                response.result=False
+                return response
 
 
 class UARTsrv(Node):
