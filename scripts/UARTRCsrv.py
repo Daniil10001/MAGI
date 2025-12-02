@@ -21,16 +21,17 @@ class UARTPortHandler(Node):
         self.Executor=Executor
         self.interface=serial.Serial(port,baudrate,rtscts=True, timeout=0.1)
         self.inst_num=inst_num
-        self.service=self.create_service(URCTRD, f"uartrc_{inst_num}_srv",)
+        self.service=self.create_service(URCTRD, f"uartrc_{inst_num}_tr",self.transaction)
         self.running=True
         self.get_logger().info(f"uartrc_{inst_num} inited")
-        self.lk=True
+        self.lk=Lock()
         
     def transmit(self, data):
         try:
             self.interface.write(bytes(data))
             return True
         except:
+            self.get_logger().info(f"Not transmitted")
             return False
 
     def transaction(self,request,response):
@@ -41,14 +42,20 @@ class UARTPortHandler(Node):
         with self.lk:
             try:
                 self.future =self.Executor.create_task(self.transmit, request.data_t.data)
-                request.data_r.data=np.frombuffer(self.interface.read(request.rds), dtype=np.int16)#[UInt16(received_bytes[i+1] << 8) | UInt16(received_bytes[i]) for i in range(8192)]
+                response.data_r.data=np.frombuffer(self.interface.read(request.rds<<1), dtype=np.int16)#[UInt16(received_bytes[i+1] << 8) | UInt16(received_bytes[i]) for i in range(8192)]
                 self.Executor.spin_until_future_complete(self.future)
                 if not self.future.result():
                     response.result=False
                     return response
+                if len(response.data_r.data)<request.rds:
+                    self.get_logger().info(f"not enough lenghts")
+                    response.result=False
+                    return response
+                #self.get_logger().info("Data responsed")
                 response.result=True
                 return response
-            except:
+            except Exception as e:
+                self.get_logger().info(f"Error happens, {str(e)}")
                 response.result=False
                 return response
 

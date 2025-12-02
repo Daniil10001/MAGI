@@ -8,10 +8,11 @@ from rclpy.node import Node
 from pydub import AudioSegment
 import numpy as np
 
-from magi.srv import SendData, IsBusy
+from magi.srv import SendData, BoolSRV
 from std_msgs.msg import UInt8, Bool, String
 from magi.msg import Data
 from asyncio import Future
+from threading import Lock
 from constant import STM32Buffer
 
 class SoundManager(Node):
@@ -19,7 +20,8 @@ class SoundManager(Node):
     def __init__(self):
         super().__init__("SoundManager")
         self.send_data = self.create_client(SendData, 'controller/SendData')
-        self.check_r = self.create_client(IsBusy, 'controller/IsBusy')
+        self.check_r = self.create_client(BoolSRV, 'controller/IsBusy')
+        self.isempy_srv = self.create_service(BoolSRV, 'soundmanager/IsEmpty', self.IsEmpty)
 
         self.__filequeue=[]
         self.__datareq=SendData.Request()
@@ -34,15 +36,19 @@ class SoundManager(Node):
         self.timer = self.create_timer(0.1, self.timer_callback)
 
         self.data_future = self.send_data.call_async(self.__datareq)
+        self.ft=Lock()
 
-
+    def IsEmpty(self,request, response):
+        response.result=Bool(data=len(self.__filequeue)==0)
+        return response
         
     def addToQueue(self,msg):
+        self.get_logger().info("Queue updated")
         self.__filequeue.append(msg.data)
     
     def timer_callback(self):
-        if self.data_future.done():
-            if self.data_future.result().result:
+        if (not self.ft.locked()):
+            if True:
                 if len(self.__filequeue)==0:
                      return
                 try:
@@ -58,19 +64,34 @@ class SoundManager(Node):
                     self.__datareq.size=samples.shape[0]
                 except Exception as e:
                      self.get_logger().error(str(e))
-            future = self.check_r.call_async(IsBusy.Request())
-            rclpy.spin_until_future_complete(self, future, timeout_sec=1)
-            if future.done():
-                if not future.result().result:
-                     self.data_future = self.send_data.call_async(self.__datareq)
-            else:
-                self.get_logger().error(f'Controller service call timed out.')
-                raise Exception("Controller service call timed out.")
+            self.get_logger().info("Data prepared")
+            self.ft.acquire()
+            self.future = self.check_r.call_async(BoolSRV.Request())
+            self.future.add_done_callback(self.ft_callbck)
+            
+    def ft_callbck(self,future):
+        if not future.result().result:
+            self.data_future = self.send_data.call_async(self.__datareq)
+            self.data_future.add_done_callback(self.dt_callbck)
+            self.get_logger().info("Try Transmited")
+        else:
+            self.future = self.check_r.call_async(BoolSRV.Request())
+            self.future.add_done_callback(self.ft_callbck)
+    
+    def dt_callbck(self,future):
+        if not future.result().result:
+            self.data_future = self.send_data.call_async(self.__datareq)
+            self.data_future.add_done_callback(self.dt_callbck)
+            self.get_logger().info("Try Transmited")
+        else:
+            self.ft.release() 
+            self.get_logger().info("Transmited")
+             
                 
         
 def main():
     try:
-        with rclpy.init():
+            rclpy.init()
             node = SoundManager()
 
             rclpy.spin(node)

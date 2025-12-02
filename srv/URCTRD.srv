@@ -1,5 +1,5 @@
-Data[] data_t
+Data data_t
 uint32 rds
 ---
-Data[] data_r
+Data data_r
 bool result
